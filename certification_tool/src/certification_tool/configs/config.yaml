@@ -6,6 +6,10 @@ log_settings: logging.cfg
 config_file: /tmp/netconfig.yaml
 
 report:
+  skipped_pci_classes:
+    '0101': 'IDE interface'
+    '0601': 'ISA bridge'
+    '0604': 'PCI bridge'
   mail:
     smtp_server: "smtp.gmail.com"
     mail_to: "fuel-certification@mirantis.com"

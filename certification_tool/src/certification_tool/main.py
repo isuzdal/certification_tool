@@ -74,8 +74,9 @@ SSH_OPTS = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
 ssh_cmd_templ = "ssh {ssh_opts} root@{ip} {cmd}"
 
 
-def gather_hw_info_subprocess(nodes, splitter='!' * 60):
+def gather_hw_info_subprocess(nodes, config, splitter='!' * 60):
     res = []
+    slots = []
     try:
         for node in nodes:
             res.append(splitter)
@@ -93,6 +94,52 @@ def gather_hw_info_subprocess(nodes, splitter='!' * 60):
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT)
                 res.append(p.stdout.read())
+
+            lspci_named_ssh_cmd = ssh_cmd_templ.format(ssh_opts=SSH_OPTS,
+                                                        ip=ip,
+                                                        cmd='lspci -vmm')
+            lspci_named = subprocess.Popen(lspci_named_ssh_cmd,
+                                            shell=True,
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT)
+
+            lspci_numeric_ssh_cmd = ssh_cmd_templ.format(ssh_opts=SSH_OPTS,
+                                                        ip=ip,
+                                                        cmd='lspci -n')
+            lspci_numeric = subprocess.Popen(lspci_numeric_ssh_cmd,
+                                            shell=True,
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT)
+
+            for line in lspci_numeric.stdout.read().split('\n'):
+                if not len(line) == 0:
+                    _slot = str(line.split()[0].strip())
+                    _class = str(line.split()[1].rstrip(':'))
+                    if not _class in config['report'].get('skipped_pci_classes', {}).keys():
+                        slots.append(_slot)
+
+            unsupported = {}
+            for line in lspci_named.stdout.read().split('\n\n'):
+                if not len(line) == 0:
+                    devinfo = {}
+                    for k in line.split('\n'):
+                        if not len(k) == 0:
+                            k, v = re.split('\:\s+', i, maxsplit=1)
+                            devinfo[k.lower()] = str(v.strip())
+                    if devinfo['slot'] in slots:
+                        if re.findall(r'^device\s+[a-f0-9]{4}', devinfo['device'].lower()):
+                            if not devinfo['slot'] in unsupported:
+                                unsupported[devinfo['slot']] = {}
+                            for key in devinfo:
+                                if key != 'slot':
+                                    unsupported[devinfo['slot']][key] = devinfo[key]
+
+            if len(unsupported) > 0:
+                res.append(splitter)
+                res.append('Probably unsupported devices:')
+                res.append(splitter)
+                res.append(unsupported)
+
         return "\n".join(res)
     except Exception as exc:
         raise
@@ -396,7 +443,7 @@ def run_tests(conn, config, test_run_timeout,
 
     if hw_report_only and not reuse_cluster_id:
         nodes = fuel_rest_api.FuelInfo(conn).nodes
-        hw_info = gather_hw_info_subprocess(nodes)
+        hw_info = gather_hw_info_subprocess(nodes, config)
         return [], [], [hw_info]
 
     tests_results = []
@@ -458,7 +505,7 @@ def run_tests(conn, config, test_run_timeout,
         for node in cluster.get_nodes():
             ips.append(node.get_ip("fuelweb_admin"))
 
-        hw_info.append(gather_hw_info_subprocess(cluster.get_nodes()))
+        hw_info.append(gather_hw_info_subprocess(cluster.get_nodes(), config))
 
     return tests_results, nodes_info, hw_info
 
