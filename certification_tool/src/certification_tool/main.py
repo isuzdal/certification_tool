@@ -76,9 +76,9 @@ ssh_cmd_templ = "ssh {ssh_opts} root@{ip} {cmd}"
 
 def gather_hw_info_subprocess(nodes, config, splitter='!' * 60):
     res = []
-    slots = []
     try:
         for node in nodes:
+            slots = []
             res.append(splitter)
             res.append("Node: %s %s" % (node.ip, " ".join(node.roles)))
             ip = node.ip
